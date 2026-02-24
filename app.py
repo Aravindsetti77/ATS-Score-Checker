@@ -1,62 +1,60 @@
 import streamlit as st
 import pdfplumber
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
+from collections import Counter
+import math
 
-# --- Pro Functions ---
-def extract_text_pro(file):
-    """Uses pdfplumber to handle complex resume layouts accurately."""
-    try:
-        with pdfplumber.open(file) as pdf:
-            text = ""
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + " "
-            return text
-    except Exception as e:
-        return f"Error: {e}"
+# --- Precision Logic (No heavy libraries) ---
+def get_text_from_pdf(file):
+    with pdfplumber.open(file) as pdf:
+        return " ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
-def clean_text_pro(text):
-    text = text.lower()
-    text = re.sub(r'http\S+\s*', ' ', text)  # Remove URLs
-    text = re.sub(r'[^\w\s]', ' ', text)     # Remove punctuation
-    return text
+def clean_and_tokenize(text):
+    text = re.sub(r'[^\w\s]', '', text.lower())
+    return [word for word in text.split() if len(word) > 2]
 
-def calculate_pro_score(resume, jd):
-    # Using ngram_range=(1, 2) allows the AI to recognize 2-word skills like "Machine Learning"
-    vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 2))
-    matrix = vectorizer.fit_transform([clean_text_pro(resume), clean_text_pro(jd)])
-    similarity = cosine_similarity(matrix[0:1], matrix[1:2])
-    return round(float(similarity[0][0]) * 100, 2)
+def calculate_cosine_similarity(text1, text2):
+    """Accurate manual cosine similarity for stability."""
+    vec1 = Counter(clean_and_tokenize(text1))
+    vec2 = Counter(clean_and_tokenize(text2))
+    
+    intersection = set(vec1.keys()) & set(vec2.keys())
+    numerator = sum([vec1[x] * vec2[x] for x in intersection])
+    
+    sum1 = sum([vec1[x]**2 for x in vec1.keys()])
+    sum2 = sum([vec2[x]**2 for x in vec2.keys()])
+    denominator = math.sqrt(sum1) * math.sqrt(sum2)
+    
+    return round((numerator / denominator) * 100, 2) if denominator else 0.0
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Elite ATS Checker", page_icon="🎯")
-st.title("🎯 Pro ATS Matcher")
-st.write("This version uses N-gram phrase matching for higher accuracy.")
+st.set_page_config(page_title="Ultra-Stable ATS", layout="wide")
+st.title("🛡️ Ultra-Stable ATS Checker")
 
-uploaded_file = st.file_uploader("Upload Resume (PDF)", type="pdf")
-jd_text = st.text_area("Paste Job Description", height=250)
+# Use columns to prevent the "wall of text" look
+col1, col2 = st.columns(2)
 
-if st.button("Analyze Match"):
-    if uploaded_file and jd_text:
-        with st.spinner("Processing documents..."):
-            resume_text = extract_text_pro(uploaded_file)
+with col1:
+    resume_file = st.file_uploader("Upload Resume (PDF)", type="pdf")
+with col2:
+    jd_input = st.text_area("Paste Job Description", height=200)
+
+if st.button("Run Accuracy Analysis"):
+    if resume_file and jd_input:
+        try:
+            resume_content = get_text_from_pdf(resume_file)
+            score = calculate_cosine_similarity(resume_content, jd_input)
             
-            if "Error" in resume_text:
-                st.error(resume_text)
+            st.divider()
+            st.header(f"Match Score: {score}%")
+            
+            if score > 60:
+                st.balloons()
+                st.success("Strong match! Your resume aligns well with the keywords.")
             else:
-                score = calculate_pro_score(resume_text, jd_text)
+                st.warning("Needs improvement. Try adding more specific industry terms.")
                 
-                st.metric(label="Match Rate", value=f"{score}%")
-                st.progress(score / 100)
-                
-                if score > 75:
-                    st.success("High Match! Your resume looks great for this role.")
-                elif score > 50:
-                    st.warning("Average Match. Try adding more specific keywords from the JD.")
-                else:
-                    st.error("Low Match. You need to tailor your resume significantly.")
+        except Exception as e:
+            st.error(f"Something went wrong: {e}")
     else:
-        st.info("Please provide both a resume and a job description.")
+        st.info("Please upload a PDF and paste a JD first.")
