@@ -1,46 +1,62 @@
 import streamlit as st
 import pdfplumber
-import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import re
 
-# 1. Load the model safely
-@st.cache_resource
-def load_nlp():
+# --- Pro Functions ---
+def extract_text_pro(file):
+    """Uses pdfplumber to handle complex resume layouts accurately."""
     try:
-        return spacy.load("en_core_web_md")
-    except OSError:
-        # Fallback if the download failed
-        import os
-        os.system("python -m spacy download en_core_web_md")
-        return spacy.load("en_core_web_md")
+        with pdfplumber.open(file) as pdf:
+            text = ""
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + " "
+            return text
+    except Exception as e:
+        return f"Error: {e}"
 
-nlp = load_nlp()
+def clean_text_pro(text):
+    text = text.lower()
+    text = re.sub(r'http\S+\s*', ' ', text)  # Remove URLs
+    text = re.sub(r'[^\w\s]', ' ', text)     # Remove punctuation
+    return text
 
-def get_pro_text(file):
-    """Uses pdfplumber for better layout handling."""
-    with pdfplumber.open(file) as pdf:
-        return " ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+def calculate_pro_score(resume, jd):
+    # Using ngram_range=(1, 2) allows the AI to recognize 2-word skills like "Machine Learning"
+    vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 2))
+    matrix = vectorizer.fit_transform([clean_text_pro(resume), clean_text_pro(jd)])
+    similarity = cosine_similarity(matrix[0:1], matrix[1:2])
+    return round(float(similarity[0][0]) * 100, 2)
 
-def calculate_match(resume, jd):
-    """Semantic similarity: understands 'Python' is related to 'Coding'."""
-    doc_resume = nlp(resume)
-    doc_jd = nlp(jd)
-    # This uses word vectors, not just word counts
-    score = doc_resume.similarity(doc_jd)
-    return round(score * 100, 2)
+# --- Streamlit UI ---
+st.set_page_config(page_title="Elite ATS Checker", page_icon="🎯")
+st.title("🎯 Pro ATS Matcher")
+st.write("This version uses N-gram phrase matching for higher accuracy.")
 
-# --- UI Logic ---
-st.title("🎯 Precise ATS Analyzer")
+uploaded_file = st.file_uploader("Upload Resume (PDF)", type="pdf")
+jd_text = st.text_area("Paste Job Description", height=250)
 
-uploaded = st.file_uploader("Upload PDF", type="pdf")
-jd_text = st.text_area("Paste Job Description")
-
-if st.button("Analyze") and uploaded and jd_text:
-    resume_text = get_pro_text(uploaded)
-    score = calculate_match(resume_text, jd_text)
-    
-    st.metric("Match Accuracy", f"{score}%")
-    
-    if score < 50:
-        st.error("Too generic. Add specific tech stack keywords.")
+if st.button("Analyze Match"):
+    if uploaded_file and jd_text:
+        with st.spinner("Processing documents..."):
+            resume_text = extract_text_pro(uploaded_file)
+            
+            if "Error" in resume_text:
+                st.error(resume_text)
+            else:
+                score = calculate_pro_score(resume_text, jd_text)
+                
+                st.metric(label="Match Rate", value=f"{score}%")
+                st.progress(score / 100)
+                
+                if score > 75:
+                    st.success("High Match! Your resume looks great for this role.")
+                elif score > 50:
+                    st.warning("Average Match. Try adding more specific keywords from the JD.")
+                else:
+                    st.error("Low Match. You need to tailor your resume significantly.")
     else:
-        st.success("Solid match!")
+        st.info("Please provide both a resume and a job description.")
