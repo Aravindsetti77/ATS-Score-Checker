@@ -1,3 +1,8 @@
-streamlit
-PyPDF2
-scikit-learn
+# Core NLP and Text Extraction
+pip install spacy sentence-transformers pdfplumber
+
+# Streamlit for the UI
+pip install streamlit
+
+# Download the Language Model for SpaCy
+python -m spacy download en_core_web_md
