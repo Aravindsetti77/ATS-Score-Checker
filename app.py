@@ -1,23 +1,46 @@
+import streamlit as st
+import pdfplumber
 import spacy
-from sklearn.metrics.pairwise import cosine_similarity
 
-# Load a medium-sized English model (contains word vectors)
-# Run 'python -m spacy download en_core_web_md' in terminal
-nlp = spacy.load("en_core_web_md")
+# 1. Load the model safely
+@st.cache_resource
+def load_nlp():
+    try:
+        return spacy.load("en_core_web_md")
+    except OSError:
+        # Fallback if the download failed
+        import os
+        os.system("python -m spacy download en_core_web_md")
+        return spacy.load("en_core_web_md")
 
-def calculate_accurate_score(resume_text, jd_text):
-    """Uses NLP Word Vectors to find semantic similarity."""
-    doc1 = nlp(resume_text)
-    doc2 = nlp(jd_text)
-    
-    # Spacy's built-in similarity uses word vectors (Cosine Similarity)
-    # This is much more accurate than TF-IDF for context
-    score = doc1.similarity(doc2)
+nlp = load_nlp()
+
+def get_pro_text(file):
+    """Uses pdfplumber for better layout handling."""
+    with pdfplumber.open(file) as pdf:
+        return " ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+
+def calculate_match(resume, jd):
+    """Semantic similarity: understands 'Python' is related to 'Coding'."""
+    doc_resume = nlp(resume)
+    doc_jd = nlp(jd)
+    # This uses word vectors, not just word counts
+    score = doc_resume.similarity(doc_jd)
     return round(score * 100, 2)
 
-def extract_keywords_nlp(jd_text):
-    """Extracts only Nouns and Proper Nouns (Skills/Tech) from the JD."""
-    doc = nlp(jd_text)
-    keywords = set([token.text.lower() for token in doc 
-                    if token.pos_ in ["NOUN", "PROPN"] and not token.is_stop])
-    return list(keywords)[:20]
+# --- UI Logic ---
+st.title("🎯 Precise ATS Analyzer")
+
+uploaded = st.file_uploader("Upload PDF", type="pdf")
+jd_text = st.text_area("Paste Job Description")
+
+if st.button("Analyze") and uploaded and jd_text:
+    resume_text = get_pro_text(uploaded)
+    score = calculate_match(resume_text, jd_text)
+    
+    st.metric("Match Accuracy", f"{score}%")
+    
+    if score < 50:
+        st.error("Too generic. Add specific tech stack keywords.")
+    else:
+        st.success("Solid match!")
