@@ -1,60 +1,54 @@
 import streamlit as st
 import pdfplumber
-import re
-from collections import Counter
-import math
+from sentence_transformers import SentenceTransformer, util
+import torch
 
-# --- Precision Logic (No heavy libraries) ---
-def get_text_from_pdf(file):
+# --- Settings ---
+st.set_page_config(page_title="Pro ATS Analyzer", page_icon="🤖")
+
+# Cache the model so it only loads ONCE (saves memory and time)
+@st.cache_resource
+def load_bert_model():
+    return SentenceTransformer('all-MiniLM-L6-v2')
+
+model = load_bert_model()
+
+def extract_text(file):
     with pdfplumber.open(file) as pdf:
         return " ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
-def clean_and_tokenize(text):
-    text = re.sub(r'[^\w\s]', '', text.lower())
-    return [word for word in text.split() if len(word) > 2]
+# --- UI ---
+st.title("🚀 Pro ATS Similarity Engine")
+st.info("Using BERT Neural Networks for high-accuracy semantic matching.")
 
-def calculate_cosine_similarity(text1, text2):
-    """Accurate manual cosine similarity for stability."""
-    vec1 = Counter(clean_and_tokenize(text1))
-    vec2 = Counter(clean_and_tokenize(text2))
-    
-    intersection = set(vec1.keys()) & set(vec2.keys())
-    numerator = sum([vec1[x] * vec2[x] for x in intersection])
-    
-    sum1 = sum([vec1[x]**2 for x in vec1.keys()])
-    sum2 = sum([vec2[x]**2 for x in vec2.keys()])
-    denominator = math.sqrt(sum1) * math.sqrt(sum2)
-    
-    return round((numerator / denominator) * 100, 2) if denominator else 0.0
-
-# --- Streamlit UI ---
-st.set_page_config(page_title="Ultra-Stable ATS", layout="wide")
-st.title("🛡️ Ultra-Stable ATS Checker")
-
-# Use columns to prevent the "wall of text" look
 col1, col2 = st.columns(2)
-
 with col1:
-    resume_file = st.file_uploader("Upload Resume (PDF)", type="pdf")
+    uploaded_file = st.file_uploader("Upload Resume (PDF)", type="pdf")
 with col2:
-    jd_input = st.text_area("Paste Job Description", height=200)
+    jd_text = st.text_area("Paste Job Description", height=200)
 
-if st.button("Run Accuracy Analysis"):
-    if resume_file and jd_input:
-        try:
-            resume_content = get_text_from_pdf(resume_file)
-            score = calculate_cosine_similarity(resume_content, jd_input)
+if st.button("Analyze Real Match"):
+    if uploaded_file and jd_text:
+        with st.spinner("AI is thinking..."):
+            resume_text = extract_text(uploaded_file)
+            
+            # Convert text to "embeddings" (mathematical meaning)
+            resume_vec = model.encode(resume_text, convert_to_tensor=True)
+            jd_vec = model.encode(jd_text, convert_to_tensor=True)
+            
+            # Calculate cosine similarity
+            score = util.cos_sim(resume_vec, jd_vec)
+            final_score = round(float(score[0][0]) * 100, 2)
             
             st.divider()
-            st.header(f"Match Score: {score}%")
+            st.subheader(f"Semantic Match Score: {final_score}%")
+            st.progress(final_score / 100)
             
-            if score > 60:
-                st.balloons()
-                st.success("Strong match! Your resume aligns well with the keywords.")
+            if final_score > 70:
+                st.success("High Relevance! Your experience matches the core intent of this JD.")
+            elif final_score > 40:
+                st.warning("Moderate Match. Consider aligning your phrasing more closely.")
             else:
-                st.warning("Needs improvement. Try adding more specific industry terms.")
-                
-        except Exception as e:
-            st.error(f"Something went wrong: {e}")
+                st.error("Low Match. This resume might not pass the initial AI screening.")
     else:
-        st.info("Please upload a PDF and paste a JD first.")
+        st.warning("Please upload a file and paste the job description.")
