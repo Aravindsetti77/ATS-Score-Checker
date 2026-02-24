@@ -1,3 +1,6 @@
-pip install spacy sentence-transformers pdfplumber
-pip install streamlit
-python -m spacy download en_core_web_md
+streamlit
+pdfplumber
+spacy
+sentence-transformers
+# This tells Streamlit to get the model directly from GitHub/Releases
+https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.0/en_core_web_md-3.7.0.tar.gz
